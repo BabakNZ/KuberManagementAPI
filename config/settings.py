@@ -49,6 +49,8 @@ INSTALLED_APPS = [
     "clusters",
     "namespaces",
     "workloads",
+    # local backups app (provides backup API + Celery tasks)
+    "backups",
 ]
 
 MIDDLEWARE = [
@@ -202,3 +204,23 @@ LOGGING = {
         "kubernetes": {"handlers": ["console"], "level": "WARNING", "propagate": False},
     },
 }
+
+# ---------------------------------------------------------------------------
+# Celery / background tasks
+# ---------------------------------------------------------------------------
+# Broker and result backend (default to local redis at 6379)
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = os.environ.get("DJANGO_TIME_ZONE", "UTC")
+
+# Directory to store generated backups (relative to project base dir)
+BACKUPS_DIR = Path(os.environ.get("BACKUPS_DIR", BASE_DIR / "backups"))
+BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Optional S3 upload settings for backups
+AWS_S3_BUCKET = os.environ.get("AWS_S3_BUCKET")
+AWS_S3_REGION = os.environ.get("AWS_S3_REGION")
+AWS_S3_KEY_PREFIX = os.environ.get("AWS_S3_KEY_PREFIX", "")

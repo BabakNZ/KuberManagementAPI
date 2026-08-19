@@ -13,7 +13,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U k8s_manager"]
+      test: [ "CMD-SHELL", "pg_isready -U k8s_manager" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,6 +24,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me}
       DJANGO_DEBUG: "False"
@@ -37,6 +39,27 @@ services:
     command: >
       sh -c "python manage.py migrate &&
              gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+
+  redis:
+    image: hub.hamdocker.ir/library/redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  worker:
+    build: .
+    depends_on:
+      - backend
+      - redis
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      AWS_S3_REGION: ${AWS_S3_REGION:-}
+      AWS_S3_KEY_PREFIX: ${AWS_S3_KEY_PREFIX:-}
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY}
+    command: celery -A config worker -l info
 
 volumes:
   postgres_data:

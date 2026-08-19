@@ -7,7 +7,7 @@ API, and App status is always read live rather than cached.
 
 ## Project layout
 
-```
+```bash
 config/          Django project settings, root urls, wsgi/asgi
 core/             Shared infrastructure: encryption, dynamic k8s client,
                   domain exceptions -> HTTP status mapping, log redaction
@@ -53,9 +53,11 @@ docker compose up --build
 ### Clusters
 
 `POST /api/clusters/` — persists a cluster row only, no Kubernetes contact.
+
 ```json
 {"name": "cluster-1", "address": "95.43.54.43:6443", "token": "<bearer token>"}
 ```
+
 Response (201) never includes the token.
 
 `GET /api/clusters/` — list clusters (token never included).
@@ -63,9 +65,11 @@ Response (201) never includes the token.
 ### Namespaces
 
 `POST /api/namespaces/` — creates the namespace in Kubernetes, then in DB.
+
 ```json
 {"cluster_id": 1, "name": "new-ns"}
 ```
+
 - `404 cluster_not_found` if the cluster id doesn't exist
 - `409 namespace_already_exists` if it's already there (in k8s or in our DB)
 - `502 cluster_unreachable` if the cluster's API server can't be reached
@@ -83,6 +87,7 @@ already-gone-from-Kubernetes namespace still succeeds (idempotent).
 ### Apps
 
 `POST /api/apps/` — creates a Deployment in the given namespace.
+
 ```json
 {
   "namespace_id": 3,
@@ -98,6 +103,7 @@ already-gone-from-Kubernetes namespace still succeeds (idempotent).
 
 `GET /api/apps/?namespace_id=3` — desired-state records plus a `live`
 block per app, populated from Kubernetes at request time:
+
 ```json
 {
   "id": 1, "name": "my-app", "namespace": 3, "replicas": 2,
@@ -168,9 +174,58 @@ requests/limits; patches the Deployment in Kubernetes.
 - **UI**: this API is CORS-enabled (`CORS_ALLOWED_ORIGINS` in `.env`) so
   a separate frontend (React/Vue/etc.) can call it directly. Happy to
   scaffold that next.
-- **Connecting to your k3s cluster**: `POST /api/clusters/` with your
   k3s API server address (e.g. `<node-ip>:6443`) and a bearer token
   (e.g. from a ServiceAccount you create in the cluster with the RBAC
   permissions this backend needs — namespace and deployment/pod
   read/write). I can walk through generating that token and the
   matching ClusterRole/ClusterRoleBinding when you're ready.
+
+## Backups / Celery
+
+This project includes a simple backups API that enqueues backup tasks
+to a Celery worker using Redis as the broker/result backend. The task
+creates a gzipped copy of the sqlite DB under the `backups/` folder.
+
+Run Redis (e.g. via Docker) and start a worker/server locally:
+
+```bash
+# start redis
+docker run -p 6379:6379 --name redis -d redis:7
+
+# install deps
+pip install -r requirements.txt
+
+# run Django dev server
+python manage.py runserver
+
+# start celery worker (from project root)
+celery -A config worker -l info
+```
+
+Trigger a backup via HTTP:
+
+```bash
+curl -X POST http://localhost:8000/api/backups/
+```
+
+The endpoint returns a Celery task id. The worker will create a file
+like `backups/backup-20260819T123456Z.db.gz` when complete.
+
+### Docker Compose + S3
+
+The included `docker-compose.yml` now provides `redis` and a `worker`
+service (Celery) alongside the `backend`. To run everything together:
+
+```bash
+export DJANGO_SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(50))")
+export FIELD_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+# optional: set S3 upload vars
+export AWS_S3_BUCKET=your-bucket
+export AWS_S3_REGION=us-east-1
+export AWS_S3_KEY_PREFIX=backups/
+
+docker compose up --build
+```
+
+When `AWS_S3_BUCKET` is set, backups will be uploaded to S3 and the
+task result will include an `s3_url` like `s3://your-bucket/backups/backup-...`.
