@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
-
+from core.metrics_view import metrics
 
 def health(request):
     return JsonResponse({"status": "ok"})
@@ -14,4 +14,5 @@ urlpatterns = [
     path("api/namespaces/", include("namespaces.urls")),
     path("api/apps/", include("workloads.urls")),
     path("api/backups/", include("backups.urls")),
+    path("metrics", metrics),
 ]
