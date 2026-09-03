@@ -9,7 +9,6 @@ from prometheus_client import (
 
 def metrics(request):
     registry = CollectorRegistry()
-
     multiprocess.MultiProcessCollector(registry)
 
     return HttpResponse(
