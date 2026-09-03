@@ -27,4 +27,5 @@ backup_duration_seconds = Histogram(
 backups_in_progress = Gauge(
     "hamamooz_backups_in_progress",
     "Number of backup jobs currently in progress",
+    multiprocess_mode="livesum",
 )
