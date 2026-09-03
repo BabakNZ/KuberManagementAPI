@@ -106,8 +106,8 @@ spec:
     spec:
       containers:
         - name: django
-          image: kubermanagement-api:latest
-          imagePullPolicy: Never
+          image: kubermanagement-api:frontend-20260903
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
           env:

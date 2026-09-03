@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kube Desk</title>
+  <style>
+    :root {
+      --ink: #17212b;
+      --muted: #65717b;
+      --line: #dfe5e8;
+      --paper: #f6f8f7;
+      --panel: #ffffff;
+      --teal: #0d6b68;
+      --teal-dark: #084d4b;
+      --coral: #d7654b;
+      --green: #237a52;
+      --shadow: 0 12px 30px rgba(23, 33, 43, .08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font: 15px/1.5 "Segoe UI", sans-serif;
+    }
+    header {
+      padding: 42px clamp(22px, 7vw, 96px) 34px;
+      color: #f9ffff;
+      background: linear-gradient(120deg, #0d6b68 0%, #163e4c 68%, #243543 100%);
+    }
+    .eyebrow { margin: 0 0 8px; color: #a8ded8; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    h1, h2, p { margin-top: 0; }
+    h1 { max-width: 700px; margin-bottom: 8px; font: 700 clamp(32px, 5vw, 58px)/1.02 Georgia, serif; letter-spacing: 0; }
+    header p { max-width: 620px; margin-bottom: 0; color: #d5e7e6; }
+    main { max-width: 1280px; margin: 0 auto; padding: 28px clamp(18px, 5vw, 68px) 70px; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+    .status { color: var(--muted); font-size: 13px; }
+    .status.ok { color: var(--green); }
+    .status.error { color: var(--coral); }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 22px; }
+    .panel { grid-column: span 4; min-width: 0; padding: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; box-shadow: var(--shadow); }
+    .panel.wide { grid-column: span 8; }
+    .panel h2 { margin-bottom: 3px; font-size: 20px; }
+    .panel > p { margin-bottom: 19px; color: var(--muted); font-size: 13px; }
+    form { display: grid; gap: 11px; }
+    label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 700; }
+    input, select, textarea { width: 100%; padding: 10px 11px; color: var(--ink); background: #fbfcfc; border: 1px solid #cbd5d8; border-radius: 4px; font: inherit; }
+    textarea { min-height: 70px; resize: vertical; }
+    input:focus, select:focus, textarea:focus { outline: 2px solid #9bd4cf; border-color: var(--teal); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    button { padding: 10px 14px; color: #fff; background: var(--teal); border: 0; border-radius: 4px; font: 700 13px inherit; cursor: pointer; }
+    button:hover { background: var(--teal-dark); }
+    button.secondary { color: var(--teal-dark); background: #e1f1ef; }
+    button.danger { color: #a33e2d; background: #fae8e4; }
+    .list { display: grid; gap: 9px; margin-top: 20px; }
+    .item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px; background: #f8faf9; border-left: 3px solid #9bd4cf; }
+    .item strong { display: block; }
+    .item small { display: block; color: var(--muted); overflow-wrap: anywhere; }
+    .item-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+    .item-actions button { padding: 6px 8px; font-size: 11px; }
+    .empty { padding: 18px 0; color: var(--muted); font-size: 13px; }
+    .hidden { display: none; }
+    @media (max-width: 900px) { .panel, .panel.wide { grid-column: span 6; } }
+    @media (max-width: 620px) { header { padding: 32px 20px 28px; } .toolbar { align-items: flex-start; flex-direction: column; } .panel, .panel.wide { grid-column: 1 / -1; } .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="eyebrow">Kube Desk / Django control panel</p>
+    <h1>Operate your clusters from one quiet screen.</h1>
+    <p>Read current state, register a cluster, create namespaces, and manage workloads without leaving the browser.</p>
+  </header>
+  <main>
+    <div class="toolbar">
+      <span id="status" class="status">Connecting...</span>
+      <button id="refresh" class="secondary" type="button">Refresh data</button>
+    </div>
+    <section class="grid">
+      <article class="panel">
+        <h2>Clusters</h2>
+        <p>Connection records stored by Django.</p>
+        <form id="cluster-form">
+          <label>Name<input name="name" required placeholder="minikube"></label>
+          <label>API address<input name="address" required placeholder="https://api.example.com:6443"></label>
+          <label>Bearer token<textarea name="token" required placeholder="Paste token"></textarea></label>
+          <button type="submit">Add cluster</button>
+        </form>
+        <div id="clusters" class="list"></div>
+      </article>
+
+      <article class="panel">
+        <h2>Namespaces</h2>
+        <p>Create and inspect namespaces owned by this backend.</p>
+        <form id="namespace-form">
+          <label>Cluster<select name="cluster_id" id="namespace-cluster" required></select></label>
+          <label>Name<input name="name" required pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?" placeholder="staging"></label>
+          <button type="submit">Create namespace</button>
+        </form>
+        <div id="namespaces" class="list"></div>
+      </article>
+
+      <article class="panel wide">
+        <h2>Applications</h2>
+        <p>Deployments and live pod status for a selected namespace.</p>
+        <form id="app-form">
+          <label>Namespace<select name="namespace_id" id="app-namespace" required></select></label>
+          <div class="row">
+            <label>Name<input name="name" required placeholder="web"></label>
+            <label>Image<input name="image" required placeholder="nginx:1.27"></label>
+          </div>
+          <div class="row">
+            <label>Replicas<input name="replicas" type="number" min="0" value="1" required></label>
+            <label>CPU request<input name="cpu_request" value="100m"></label>
+          </div>
+          <div class="row">
+            <label>CPU limit<input name="cpu_limit" value="500m"></label>
+            <label>Memory request<input name="memory_request" value="128Mi"></label>
+          </div>
+          <label>Memory limit<input name="memory_limit" value="512Mi"></label>
+          <button type="submit">Create application</button>
+        </form>
+        <div id="apps" class="list"></div>
+      </article>
+    </section>
+  </main>
+  <script>
+    const state = { clusters: [], namespaces: [], apps: [] };
+    const $ = (selector) => document.querySelector(selector);
+    const status = (message, good = true) => { const node = $("#status"); node.textContent = message; node.className = `status ${good ? "ok" : "error"}`; };
+    const api = async (url, options = {}) => {
+      const response = await fetch(url, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
+      const text = await response.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+      if (!response.ok) throw new Error(typeof data === "object" ? JSON.stringify(data) : data || response.statusText);
+      return data;
+    };
+    const formData = (form) => Object.fromEntries(new FormData(form).entries());
+    const esc = (value) => String(value ?? "").replace(/[&<>\"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[char]));
+    const renderSelect = (selector, items, label) => {
+      const select = $(selector);
+      const selected = select.value;
+      select.innerHTML = `<option value="">Choose ${label}</option>` + items.map((item) => `<option value="${item.id}">${esc(item.name)}</option>`).join("");
+      if (items.some((item) => String(item.id) === selected)) select.value = selected;
+    };
+    const render = () => {
+      renderSelect("#namespace-cluster", state.clusters, "a cluster");
+      renderSelect("#app-namespace", state.namespaces, "a namespace");
+      $("#clusters").innerHTML = state.clusters.length ? state.clusters.map((item) => `<div class="item"><div><strong>${esc(item.name)}</strong><small>${esc(item.address)}</small></div></div>`).join("") : `<div class="empty">No clusters yet.</div>`;
+      $("#namespaces").innerHTML = state.namespaces.length ? state.namespaces.map((item) => `<div class="item"><div><strong>${esc(item.name)}</strong><small>${esc(item.status)} / cluster ${esc(item.cluster)}</small></div><div class="item-actions"><button class="danger" data-delete-namespace="${item.id}" type="button">Delete</button></div></div>`).join("") : `<div class="empty">No namespaces yet.</div>`;
+      $("#apps").innerHTML = state.apps.length ? state.apps.map((item) => `<div class="item"><div><strong>${esc(item.name)}</strong><small>${esc(item.image)} / ${esc(item.status)} / pods: ${esc(item.live?.pods?.length ?? "n/a")}</small></div><div class="item-actions"><button class="danger" data-delete-app="${item.id}" type="button">Delete</button></div></div>`).join("") : `<div class="empty">Choose a namespace to inspect applications.</div>`;
+    };
+    async function load() {
+      try {
+        const clusterData = await api("/api/clusters/");
+        state.clusters = clusterData.results || clusterData;
+        state.namespaces = (await Promise.all(state.clusters.map((cluster) => api(`/api/namespaces/?cluster_id=${cluster.id}`)))).flat();
+        const selected = $("#app-namespace").value;
+        state.apps = selected ? await api(`/api/apps/?namespace_id=${selected}`) : [];
+        render();
+        status(`Updated ${new Date().toLocaleTimeString()}`);
+      } catch (error) { status(error.message, false); }
+    }
+    async function submit(form, url, success) {
+      try { await api(url, { method: "POST", body: JSON.stringify(formData(form)) }); form.reset(); await load(); status(success); }
+      catch (error) { status(error.message, false); }
+    }
+    $("#cluster-form").addEventListener("submit", (event) => { event.preventDefault(); submit(event.currentTarget, "/api/clusters/", "Cluster added"); });
+    $("#namespace-form").addEventListener("submit", (event) => { event.preventDefault(); submit(event.currentTarget, "/api/namespaces/", "Namespace created"); });
+    $("#app-form").addEventListener("submit", (event) => { event.preventDefault(); const data = formData(event.currentTarget); data.replicas = Number(data.replicas); submit(event.currentTarget, "/api/apps/", "Application created"); });
+    $("#refresh").addEventListener("click", load);
+    $("#app-namespace").addEventListener("change", load);
+    document.addEventListener("click", async (event) => {
+      const namespaceId = event.target.dataset.deleteNamespace;
+      const appId = event.target.dataset.deleteApp;
+      if (!namespaceId && !appId) return;
+      try { await api(`/api/${namespaceId ? "namespaces" : "apps"}/${namespaceId || appId}/`, { method: "DELETE" }); await load(); status("Deleted"); }
+      catch (error) { status(error.message, false); }
+    });
+    load();
+  </script>
+</body>
+</html>
