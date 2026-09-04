@@ -2,11 +2,11 @@ apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:
   name: django-backend
-  namespace: default
+  namespace: k8s-manager
 spec:
   selector:
     matchLabels:
-      app: django-backend
+      app.kubernetes.io/name: backend
   endpoints:
     - port: http
       path: /metrics

@@ -1,6 +1,13 @@
 # Workshop foundation only. Students create VMSingle and VMAgent themselves.
 vmsingle:
   enabled: true
+  spec:
+    retentionPeriod: "30d"
+    storage:
+      storageClassName: ""
+      resources:
+        requests:
+          storage: 20Gi
 
 vmcluster:
   enabled: false
@@ -20,7 +27,20 @@ alertmanager:
 grafana:
   enabled: true
   persistence:
-    enabled: false
+    enabled: true
+    type: pvc
+    size: 5Gi
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.example.com
+    path: /
+    pathType: Prefix
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.example.com
 
 prometheus-node-exporter:
   enabled: true

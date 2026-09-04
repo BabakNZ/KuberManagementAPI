@@ -12,7 +12,8 @@ data:
       "uid": "django-kubernetes-operations",
       "schemaVersion": 39,
       "version": 1,
-      "refresh": "15s",
+      "refresh": "30s",
+      "tags": ["django", "kubernetes", "backups"],
       "time": {"from": "now-30m", "to": "now"},
       "panels": [
         {
@@ -70,6 +71,26 @@ data:
           "targets": [{"refId": "A", "expr": "hamamooz_backups_in_progress"}],
           "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}}, "overrides": []},
           "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "value"}
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Backend scrape status",
+          "gridPos": {"h": 6, "w": 12, "x": 12, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "VictoriaMetrics"},
+          "targets": [{"refId": "A", "expr": "max(up{namespace=\"k8s-manager\", service=\"backend\"})"}],
+          "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}}, "overrides": []},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "name", "colorMode": "background"}
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Kubernetes operation error ratio",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
+          "datasource": {"type": "prometheus", "uid": "VictoriaMetrics"},
+          "targets": [{"refId": "A", "expr": "sum(rate(hamamooz_kubernetes_operations_total{outcome=~\"error|failure|failed\"}[5m])) / clamp_min(sum(rate(hamamooz_kubernetes_operations_total[5m])), 1)", "legendFormat": "error ratio"}],
+          "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
         }
       ]
     }

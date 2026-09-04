@@ -229,6 +229,30 @@ Each backend pod runs migrations in an init container before starting Gunicorn.
 The frontend proxies `/api` to the internal backend Service, so the browser
 uses one origin. Configure DNS and TLS for the Ingress controller.
 
+### Monitoring with VictoriaMetrics and Grafana
+
+The repository includes the VictoriaMetrics/Grafana stack values, a
+`VMServiceScrape` for the deployed backend, and a Grafana operations
+dashboard. Install the monitoring stack separately, then apply the two
+application monitoring resources:
+
+```bash
+helm repo add vm https://victoriametrics.github.io/helm-charts
+helm repo update
+helm upgrade --install monitoring vm/victoria-metrics-k8s-stack \
+  --namespace monitoring-system --create-namespace \
+  -f stack-values.yaml
+kubectl apply -f django-metrics.yaml
+kubectl apply -f grafana-dashboard.yaml
+```
+
+Replace `grafana.example.com` in `stack-values.yaml` with the real hostname.
+Create the `grafana-tls` Secret through cert-manager or your Ingress
+controller, point DNS to the Ingress address, and access Grafana at
+`https://grafana.example.com`. Grafana authentication remains enabled by
+default. VictoriaMetrics is intentionally kept internal; use
+`kubectl port-forward` for temporary direct access.
+
 ## Production configuration
 
 `DJANGO_DEBUG=False`, explicit `DJANGO_ALLOWED_HOSTS`, PostgreSQL via
