@@ -45,7 +45,7 @@ function FormField({
       <span>{label}</span>
       <input
         name={name}
-        defaultValue={value}
+        value={value ?? ""}
         onChange={onChange}
         type={type}
         placeholder={placeholder}
@@ -69,6 +69,41 @@ function App() {
   const [notice, setNotice] = useState("");
   const [modal, setModal] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
+  const [formValues, setFormValues] = useState({});
+
+  const openModal = (kind) => {
+    if (kind === "edit" && selectedApp) {
+      setFormValues({
+        name: selectedApp.name || "",
+        image: selectedApp.image || "",
+        replicas: selectedApp.replicas ?? 1,
+        cpu_request: selectedApp.cpu_request || "",
+        cpu_limit: selectedApp.cpu_limit || "",
+        memory_request: selectedApp.memory_request || "",
+        memory_limit: selectedApp.memory_limit || "",
+      });
+    } else if (kind === "cluster") {
+      setFormValues({ name: "", address: "", token: "" });
+    } else if (kind === "namespace") {
+      setFormValues({ name: "" });
+    } else {
+      setFormValues({
+        name: "",
+        image: "",
+        replicas: 1,
+        cpu_request: "100m",
+        cpu_limit: "500m",
+        memory_request: "128Mi",
+        memory_limit: "512Mi",
+      });
+    }
+    setModal(kind);
+  };
+
+  const updateField = (event) => {
+    const { name, value } = event.target;
+    setFormValues((current) => ({ ...current, [name]: value }));
+  };
 
   const loadClusters = async () => {
     const data = listData(await api("/api/clusters/"));
@@ -141,7 +176,7 @@ function App() {
     event.preventDefault();
     setSaving(true);
     setError("");
-    const form = Object.fromEntries(new FormData(event.currentTarget));
+    const form = formValues;
     try {
       if (modal === "cluster")
         await api("/api/clusters/", {
@@ -200,7 +235,6 @@ function App() {
     setConfirmation({ kind, item });
   };
   const livePods = selectedApp?.live?.pods || [];
-  const initial = (value) => value || "";
 
   return (
     <div className="app-shell">
@@ -226,7 +260,7 @@ function App() {
           >
             <RefreshCw size={17} />
           </button>
-          <button className="primary" onClick={() => setModal("cluster")}>
+          <button className="primary" onClick={() => openModal("cluster")}>
             <Plus size={16} /> Register cluster
           </button>
         </div>
@@ -269,7 +303,7 @@ function App() {
               <div className="empty-side">
                 <Server size={20} />
                 <p>No clusters registered</p>
-                <button onClick={() => setModal("cluster")}>
+                <button onClick={() => openModal("cluster")}>
                   Register one
                 </button>
               </div>
@@ -303,7 +337,7 @@ function App() {
             {selectedCluster && (
               <button
                 className="secondary"
-                onClick={() => setModal("namespace")}
+                onClick={() => openModal("namespace")}
               >
                 <Plus size={16} /> New namespace
               </button>
@@ -353,7 +387,7 @@ function App() {
           <div className="section-label app-label">
             Applications {selectedNamespace && <span>{apps.length}</span>}
             {selectedNamespace && (
-              <button className="text-button" onClick={() => setModal("app")}>
+              <button className="text-button" onClick={() => openModal("app")}>
                 <Plus size={15} /> Create app
               </button>
             )}
@@ -425,7 +459,7 @@ function App() {
                 <Box size={32} />
                 <strong>No applications in {selectedNamespace.name}</strong>
                 <p>Deploy your first application to this namespace.</p>
-                <button className="primary" onClick={() => setModal("app")}>
+                <button className="primary" onClick={() => openModal("app")}>
                   <Plus size={15} /> Create application
                 </button>
               </div>
@@ -510,7 +544,7 @@ function App() {
               />
             </div>
             <div className="detail-actions">
-              <button className="secondary" onClick={() => setModal("edit")}>
+              <button className="secondary" onClick={() => openModal("edit")}>
                 <Settings2 size={15} /> Edit app
               </button>
               <button
@@ -553,7 +587,11 @@ function App() {
                         : "Create application"}
                 </h3>
               </div>
-              <button className="icon-button" aria-label="Close dialog" onClick={() => setModal(null)}>
+              <button
+                className="icon-button"
+                aria-label="Close dialog"
+                onClick={() => setModal(null)}
+              >
                 <X size={17} />
               </button>
             </div>
@@ -563,11 +601,15 @@ function App() {
                   <FormField
                     label="Cluster name"
                     name="name"
+                    value={formValues.name}
+                    onChange={updateField}
                     placeholder="production"
                   />
                   <FormField
                     label="API address"
                     name="address"
+                    value={formValues.address}
+                    onChange={updateField}
                     placeholder="https://api.example.com:6443"
                   />
                   <label className="field">
@@ -575,6 +617,8 @@ function App() {
                     <textarea
                       name="token"
                       rows="3"
+                      value={formValues.token || ""}
+                      onChange={updateField}
                       required
                       placeholder="Paste the cluster token"
                     />
@@ -585,6 +629,8 @@ function App() {
                 <FormField
                   label="Namespace name"
                   name="name"
+                  value={formValues.name}
+                  onChange={updateField}
                   placeholder="staging"
                 />
               )}
@@ -594,16 +640,16 @@ function App() {
                     <FormField
                       label="App name"
                       name="name"
-                      value={initial(selectedApp?.name)}
-                      onChange={() => {}}
+                      value={formValues.name}
+                      onChange={updateField}
                       placeholder="web"
                       required={modal === "app"}
                     />
                     <FormField
                       label="Container image"
                       name="image"
-                      value={initial(selectedApp?.image)}
-                      onChange={() => {}}
+                      value={formValues.image}
+                      onChange={updateField}
                       placeholder="nginx:1.27"
                     />
                   </div>
@@ -613,14 +659,14 @@ function App() {
                       name="replicas"
                       type="number"
                       min="0"
-                      value={initial(selectedApp?.replicas || 1)}
-                      onChange={() => {}}
+                      value={formValues.replicas}
+                      onChange={updateField}
                     />
                     <FormField
                       label="CPU request"
                       name="cpu_request"
-                      value={initial(selectedApp?.cpu_request)}
-                      onChange={() => {}}
+                      value={formValues.cpu_request}
+                      onChange={updateField}
                       placeholder="100m"
                     />
                   </div>
@@ -628,23 +674,23 @@ function App() {
                     <FormField
                       label="CPU limit"
                       name="cpu_limit"
-                      value={initial(selectedApp?.cpu_limit)}
-                      onChange={() => {}}
+                      value={formValues.cpu_limit}
+                      onChange={updateField}
                       placeholder="500m"
                     />
                     <FormField
                       label="Memory request"
                       name="memory_request"
-                      value={initial(selectedApp?.memory_request)}
-                      onChange={() => {}}
+                      value={formValues.memory_request}
+                      onChange={updateField}
                       placeholder="128Mi"
                     />
                   </div>
                   <FormField
                     label="Memory limit"
                     name="memory_limit"
-                    value={initial(selectedApp?.memory_limit)}
-                    onChange={() => {}}
+                    value={formValues.memory_limit}
+                    onChange={updateField}
                     placeholder="512Mi"
                   />
                 </>

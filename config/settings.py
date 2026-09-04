@@ -252,3 +252,6 @@ BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
 AWS_S3_BUCKET = os.environ.get("AWS_S3_BUCKET")
 AWS_S3_REGION = os.environ.get("AWS_S3_REGION")
 AWS_S3_KEY_PREFIX = os.environ.get("AWS_S3_KEY_PREFIX", "")
+BACKUP_REMOTE_REQUIRED = os.environ.get(
+    "BACKUP_REMOTE_REQUIRED", "False" if DEBUG else "True"
+) == "True"

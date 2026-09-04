@@ -244,8 +244,8 @@ metrics and should remain internal or be protected at the ingress.
 ## Backups / Celery
 
 This project includes a simple backups API that enqueues backup tasks
-to a Celery worker using Redis as the broker/result backend. The task
-creates a gzipped copy of the sqlite DB under the `backups/` folder.
+to a Celery worker using Redis as the broker/result backend. SQLite backups
+are copied directly; PostgreSQL backups are created with `pg_dump`.
 
 Run Redis (e.g. via Docker) and start a worker/server locally:
 
@@ -269,8 +269,11 @@ Trigger a backup via HTTP:
 curl -X POST http://localhost:8000/api/backups/
 ```
 
-The endpoint returns a Celery task id. The worker will create a file
-like `backups/backup-20260819T123456Z.db.gz` when complete.
+The endpoint returns a Celery task id. In local development, the worker will
+create a file under `backups/`. In production, configure S3 because worker
+container filesystems are disposable; the task fails instead of reporting a
+successful backup when durable remote storage is not configured or an upload
+fails.
 
 ### Docker Compose + S3
 
@@ -280,7 +283,7 @@ service (Celery) alongside the `backend`. To run everything together:
 ```bash
 export DJANGO_SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(50))")
 export FIELD_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-# optional: set S3 upload vars
+# production backups require these S3 settings
 export AWS_S3_BUCKET=your-bucket
 export AWS_S3_REGION=us-east-1
 export AWS_S3_KEY_PREFIX=backups/
@@ -288,5 +291,6 @@ export AWS_S3_KEY_PREFIX=backups/
 docker compose up --build
 ```
 
-When `AWS_S3_BUCKET` is set, backups will be uploaded to S3 and the
-task result will include an `s3_url` like `s3://your-bucket/backups/backup-...`.
+Backups are uploaded to S3 and the task result includes an `s3_url` like
+`s3://your-bucket/backups/backup-...`. Configure AWS credentials through the
+runtime environment or the workload's IAM role; do not commit credentials.

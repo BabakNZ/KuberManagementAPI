@@ -13,6 +13,10 @@ data:
   SECURE_HSTS_SECONDS: "31536000"
   CELERY_BROKER_URL: redis://redis:6379/0
   CELERY_RESULT_BACKEND: redis://redis:6379/1
+  BACKUP_REMOTE_REQUIRED: "True"
+  AWS_S3_BUCKET: ""
+  AWS_S3_REGION: ""
+  AWS_S3_KEY_PREFIX: backups/
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

@@ -1,6 +1,8 @@
 import gzip
 import logging
+import os
 import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -23,31 +25,53 @@ def create_backup(self):
     backups_in_progress.inc()
     try:
         with backup_duration_seconds.time():
-            """Create a compressed backup of the sqlite database file.
+            """Create a compressed backup of the configured database.
 
-            The task writes a gzipped copy into `settings.BACKUPS_DIR` and returns
-            the saved file path."""
+            PostgreSQL is dumped with `pg_dump`; SQLite is copied directly. The
+            task writes the compressed result into `settings.BACKUPS_DIR`."""
             db_settings = settings.DATABASES.get("default", {})
-            db_name = db_settings.get("NAME")
-            if not db_name:
-                raise RuntimeError("Database NAME not configured; cannot create backup")
-
-            db_path = Path(db_name)
-            if not db_path.exists():
-                # Try relative to project base
-                db_path = Path(settings.BASE_DIR) / db_path
-            if not db_path.exists():
-                raise RuntimeError(f"Database file not found: {db_path}")
-
-            timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-            out_name = f"backup-{timestamp}.db.gz"
+            engine = db_settings.get("ENGINE", "")
+            timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+            extension = "sql.gz" if engine.endswith("postgresql") else "db.gz"
+            out_name = f"backup-{timestamp}.{extension}"
             out_path = Path(settings.BACKUPS_DIR) / out_name
 
-            logger.info("Creating backup for %s -> %s", db_path, out_path)
+            if engine.endswith("postgresql"):
+                logger.info("Creating PostgreSQL backup -> %s", out_path)
+                pg_dump_env = os.environ.copy()
+                if db_settings.get("PASSWORD"):
+                    pg_dump_env["PGPASSWORD"] = str(db_settings["PASSWORD"])
+                command = [
+                    "pg_dump",
+                    "--no-password",
+                    "--format=plain",
+                    "--host", str(db_settings.get("HOST") or "localhost"),
+                    "--port", str(db_settings.get("PORT") or 5432),
+                    "--username", str(db_settings.get("USER") or ""),
+                    str(db_settings.get("NAME") or ""),
+                ]
+                with gzip.open(out_path, "wb") as dst:
+                    subprocess.run(
+                        command,
+                        env=pg_dump_env,
+                        stdout=dst,
+                        check=True,
+                        stderr=subprocess.PIPE,
+                    )
+            else:
+                db_name = db_settings.get("NAME")
+                if not db_name:
+                    raise RuntimeError("Database NAME not configured; cannot create backup")
 
-            # Copy and compress
-            with open(db_path, "rb") as src, gzip.open(out_path, "wb") as dst:
-                shutil.copyfileobj(src, dst)
+                db_path = Path(db_name)
+                if not db_path.exists():
+                    db_path = Path(settings.BASE_DIR) / db_path
+                if not db_path.exists():
+                    raise RuntimeError(f"Database file not found: {db_path}")
+
+                logger.info("Creating SQLite backup for %s -> %s", db_path, out_path)
+                with open(db_path, "rb") as src, gzip.open(out_path, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
 
             size = out_path.stat().st_size
             logger.info("Backup created: %s (%d bytes)", out_path, size)
@@ -55,6 +79,10 @@ def create_backup(self):
 
             # Optionally upload to S3 when bucket is configured
             s3_bucket = getattr(settings, "AWS_S3_BUCKET", None)
+            if not s3_bucket and getattr(settings, "BACKUP_REMOTE_REQUIRED", False):
+                raise RuntimeError(
+                    "AWS_S3_BUCKET must be configured for durable production backups"
+                )
             if s3_bucket:
                 s3_key_prefix = getattr(settings, "AWS_S3_KEY_PREFIX", "") or ""
                 s3_region = getattr(settings, "AWS_S3_REGION", None)
@@ -67,7 +95,7 @@ def create_backup(self):
                     result["s3_url"] = s3_url
                 except (BotoCoreError, ClientError) as exc:  # pragma: no cover - external
                     logger.exception("Failed to upload backup to S3: %s", exc)
-                    result["s3_error"] = str(exc)
+                    raise RuntimeError("Backup upload to S3 failed") from exc
 
             backup_jobs_total.labels(
                 outcome="completed"
