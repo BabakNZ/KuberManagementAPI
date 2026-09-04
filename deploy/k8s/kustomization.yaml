@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: k8s-manager
+
+resources:
+  - namespace.yaml
+  - app.yaml
+
+images:
+  - name: k8s-manager-backend
+    newName: k8s-manager-backend
+    newTag: latest
+  - name: k8s-manager-frontend
+    newName: k8s-manager-frontend
+    newTag: latest

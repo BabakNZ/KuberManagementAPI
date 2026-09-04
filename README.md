@@ -1,9 +1,16 @@
-# K8s Manager Backend
+# K8s Manager
 
-A Django + DRF backend for managing Kubernetes clusters, namespaces, and
-apps (Deployments) through a REST API. Built to the spec: Cluster is
-pure DB storage, Namespace/App operations talk to the real Kubernetes
-API, and App status is always read live rather than cached.
+A Django REST API and React UI for registering Kubernetes clusters, creating
+namespaces, and managing application Deployments. Cluster credentials are
+encrypted at rest with Fernet. PostgreSQL stores control-plane records and
+application status is read live from Kubernetes.
+
+## Production boundary
+
+The API does not provide user authentication. Do not expose it directly to
+the public internet. Put it behind a private network, VPN, SSO proxy, or add
+application authentication before public exposure. Configure TLS and
+authentication for the Ingress controller used by your cluster.
 
 ## Project layout
 
@@ -24,11 +31,11 @@ status), `services.py` (Kubernetes I/O, framework-agnostic),
 This separation is what makes it easy to later reuse the service layer
 from a Celery task, a management command, or a different transport.
 
-## Quick start (local, sqlite)
+## Local development (SQLite)
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
@@ -40,13 +47,26 @@ python manage.py createsuperuser   # optional, for /admin/
 python manage.py runserver
 ```
 
-## Quick start (Docker Compose, Postgres)
+Run the UI in a second terminal:
 
 ```bash
-export DJANGO_SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(50))")
-export FIELD_ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+cd frontend
+npm ci
+npm run dev
+```
+
+The Vite server proxies `/api` to `http://127.0.0.1:8000`.
+
+## Docker Compose
+
+```bash
+cp .env.example .env
+# Set DJANGO_SECRET_KEY, FIELD_ENCRYPTION_KEY, and POSTGRES_PASSWORD in .env.
 docker compose up --build
 ```
+
+Open `http://localhost:8080`. Compose runs PostgreSQL, Redis, the backend,
+Celery worker, and the frontend. Database and Redis are internal services.
 
 ## API reference
 
@@ -152,33 +172,74 @@ requests/limits; patches the Deployment in Kubernetes.
   (`cluster-write`, `namespace-write`, `app-write`), configurable via
   `REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]` in `config/settings.py`.
 
-## Scaling this later
+## Kubernetes deployment on a Linux VM
 
-- Swap sqlite for Postgres via `DATABASE_URL` (already wired) — this is
-  what lets you run multiple backend replicas behind a Service/Ingress.
-- The Dockerfile runs `gunicorn` with multiple workers; scale further by
-  running more Pod replicas of the same image in k3s.
-- The Kubernetes client is built per-request from a `Cluster` row (see
-  `core/k8s_client.py`) rather than from a static kubeconfig file, so
-  adding a second, third, ... cluster is just another `POST
-  /api/clusters/` call — no redeploy needed.
-- Not yet implemented, worth adding when you need it: API
-  authentication (currently open — add DRF `TokenAuthentication` or a
-  JWT scheme before exposing this beyond localhost/your own network), a
-  periodic reconciliation job (Celery beat or a k3s CronJob) for the
-  `deleting`/orphan edge cases described above, and a real secrets
-  backend for `FIELD_ENCRYPTION_KEY` instead of a plain env var.
+`deploy/k8s/` is a Kustomize baseline for k3s or Kubernetes on one Linux VM.
+It includes PostgreSQL, Redis, two backend replicas, one Celery worker, two
+frontend replicas, probes, a PVC, and an Ingress. For critical workloads,
+prefer managed PostgreSQL/Redis and an external secret manager.
 
-## Next steps you mentioned
+### Build and publish images
 
-- **UI**: this API is CORS-enabled (`CORS_ALLOWED_ORIGINS` in `.env`) so
-  a separate frontend (React/Vue/etc.) can call it directly. Happy to
-  scaffold that next.
-  k3s API server address (e.g. `<node-ip>:6443`) and a bearer token
-  (e.g. from a ServiceAccount you create in the cluster with the RBAC
-  permissions this backend needs — namespace and deployment/pod
-  read/write). I can walk through generating that token and the
-  matching ClusterRole/ClusterRoleBinding when you're ready.
+```bash
+export REGISTRY=registry.example.com/team
+export TAG=$(git rev-parse --short HEAD)
+docker build -t "$REGISTRY/k8s-manager-backend:$TAG" .
+docker build -t "$REGISTRY/k8s-manager-frontend:$TAG" ./frontend
+docker push "$REGISTRY/k8s-manager-backend:$TAG"
+docker push "$REGISTRY/k8s-manager-frontend:$TAG"
+```
+
+For a single-node k3s VM without a registry, import both images into the
+node's container runtime and use the same image names in the manifests.
+
+### Create secrets
+
+Do not apply `deploy/k8s/secret.example.yaml` unchanged. Create the Secret
+directly so credentials are not committed:
+
+```bash
+kubectl create namespace k8s-manager
+kubectl -n k8s-manager create secret generic k8s-manager-secrets \
+  --from-literal=DJANGO_SECRET_KEY='<long-random-value>' \
+  --from-literal=FIELD_ENCRYPTION_KEY='<Fernet-key>' \
+  --from-literal=POSTGRES_PASSWORD='<long-random-password>'
+```
+
+Edit `deploy/k8s/app.yaml` and set the hostname in its ConfigMap and Ingress.
+Use the same HTTPS origin for `CORS_ALLOWED_ORIGINS` and
+`CSRF_TRUSTED_ORIGINS`.
+
+### Apply and verify
+
+```bash
+kubectl -n k8s-manager apply -k deploy/k8s
+kubectl -n k8s-manager set image deployment/backend \
+  backend="$REGISTRY/k8s-manager-backend:$TAG"
+kubectl -n k8s-manager set image deployment/worker \
+  worker="$REGISTRY/k8s-manager-backend:$TAG"
+kubectl -n k8s-manager set image deployment/frontend \
+  frontend="$REGISTRY/k8s-manager-frontend:$TAG"
+kubectl -n k8s-manager rollout status deployment/backend
+kubectl -n k8s-manager rollout status deployment/frontend
+kubectl -n k8s-manager get pods,svc,ingress,pvc
+```
+
+Each backend pod runs migrations in an init container before starting Gunicorn.
+The frontend proxies `/api` to the internal backend Service, so the browser
+uses one origin. Configure DNS and TLS for the Ingress controller.
+
+## Production configuration
+
+`DJANGO_DEBUG=False`, explicit `DJANGO_ALLOWED_HOSTS`, PostgreSQL via
+`DATABASE_URL`, and `FIELD_ENCRYPTION_KEY` are required in production.
+`K8S_VERIFY_SSL=True` should be used with a trusted CA. Changing the Fernet
+key makes existing encrypted cluster tokens unreadable, so back it up with
+the database credentials.
+
+Health endpoints are `/api/health/` for liveness and
+`/api/health/ready/` for database readiness. `/metrics` exposes Prometheus
+metrics and should remain internal or be protected at the ingress.
 
 ## Backups / Celery
 

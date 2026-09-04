@@ -2,9 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Activity,
   Box,
-  Check,
   ChevronRight,
-  CircleAlert,
   Cloud,
   Database,
   LoaderCircle,
@@ -16,49 +14,11 @@ import {
   X,
 } from "lucide-react";
 import "./App.css";
-
-const api = async (path, options = {}) => {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...options.headers },
-    ...options,
-  });
-  const text = await response.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = text;
-  }
-  if (!response.ok) {
-    const message =
-      data !== null && typeof data === "object"
-        ? Object.values(data).flat().join(" ")
-        : data;
-    throw new Error(message || response.statusText);
-  }
-  return data;
-};
-
-const listData = (data) => data?.results || data || [];
-const statusTone = (status) => {
-  const value = String(status || "").toLowerCase();
-  if (["active", "running", "ready"].some((item) => value.includes(item)))
-    return "success";
-  if (["creating", "updating", "pending"].some((item) => value.includes(item)))
-    return "warning";
-  if (["failed", "error", "deleting"].some((item) => value.includes(item)))
-    return "danger";
-  return "neutral";
-};
-
-function StatusBadge({ status = "Unknown" }) {
-  return (
-    <span className={`status-badge ${statusTone(status)}`}>
-      <span />
-      {status.replaceAll("_", " ")}
-    </span>
-  );
-}
+import { api, listData } from "./lib/api";
+import StatusBadge from "./components/StatusBadge";
+import AlertBanner from "./components/AlertBanner";
+import ConfirmDialog from "./components/ConfirmDialog";
+import Toast from "./components/Toast";
 
 function Metric({ label, value, icon: Icon }) {
   return (
@@ -108,6 +68,7 @@ function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [modal, setModal] = useState(null);
+  const [confirmation, setConfirmation] = useState(null);
 
   const loadClusters = async () => {
     const data = listData(await api("/api/clusters/"));
@@ -221,19 +182,22 @@ function App() {
     }
   };
   const remove = async (kind, item) => {
-    if (!window.confirm(`Delete ${item.name}? This cannot be undone.`)) return;
     setSaving(true);
     setError("");
     try {
       await api(`/api/${kind}/${item.id}/`, { method: "DELETE" });
       setSelectedApp(null);
       setNotice(`${kind === "apps" ? "App" : "Namespace"} deleted`);
+      setConfirmation(null);
       await refresh();
     } catch (requestError) {
       setError(requestError.message);
     } finally {
       setSaving(false);
     }
+  };
+  const requestRemoval = (kind, item) => {
+    setConfirmation({ kind, item });
   };
   const livePods = selectedApp?.live?.pods || [];
   const initial = (value) => value || "";
@@ -257,6 +221,7 @@ function App() {
           <button
             className="icon-button"
             title="Refresh data"
+            aria-label="Refresh data"
             onClick={refresh}
           >
             <RefreshCw size={17} />
@@ -266,13 +231,7 @@ function App() {
           </button>
         </div>
       </header>
-      {notice && (
-        <div className="toast" onClick={() => setNotice("")}>
-          <Check size={16} />
-          {notice}
-          <X size={14} />
-        </div>
-      )}
+      <Toast message={notice} onDismiss={() => setNotice("")} />
       <main className="workspace">
         <aside className="sidebar">
           <div className="eyebrow">Your infrastructure</div>
@@ -350,15 +309,7 @@ function App() {
               </button>
             )}
           </div>
-          {error && (
-            <div className="error-banner">
-              <CircleAlert size={18} />
-              <span>{error}</span>
-              <button onClick={() => setError("")}>
-                <X size={15} />
-              </button>
-            </div>
-          )}
+          <AlertBanner message={error} onDismiss={() => setError("")} />
           {selectedCluster && (
             <>
               <div className="section-label">
@@ -490,6 +441,7 @@ function App() {
               </div>
               <button
                 className="icon-button"
+                aria-label="Close application details"
                 onClick={() => setSelectedApp(null)}
               >
                 <X size={17} />
@@ -563,7 +515,7 @@ function App() {
               </button>
               <button
                 className="danger-button"
-                onClick={() => remove("apps", selectedApp)}
+                onClick={() => requestRemoval("apps", selectedApp)}
               >
                 <Trash2 size={15} /> Delete
               </button>
@@ -575,7 +527,7 @@ function App() {
         <button
           className="floating-delete"
           title="Delete namespace"
-          onClick={() => remove("namespaces", selectedNamespace)}
+          onClick={() => requestRemoval("namespaces", selectedNamespace)}
         >
           <Trash2 size={15} /> Delete namespace
         </button>
@@ -601,7 +553,7 @@ function App() {
                         : "Create application"}
                 </h3>
               </div>
-              <button className="icon-button" onClick={() => setModal(null)}>
+              <button className="icon-button" aria-label="Close dialog" onClick={() => setModal(null)}>
                 <X size={17} />
               </button>
             </div>
@@ -715,6 +667,15 @@ function App() {
             </form>
           </div>
         </div>
+      )}
+      {confirmation && (
+        <ConfirmDialog
+          title={`Delete ${confirmation.item.name}?`}
+          description="This removes the resource from Kubernetes and cannot be undone."
+          busy={saving}
+          onCancel={() => setConfirmation(null)}
+          onConfirm={() => remove(confirmation.kind, confirmation.item)}
+        />
       )}
     </div>
   );

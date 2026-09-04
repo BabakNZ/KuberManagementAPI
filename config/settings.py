@@ -33,6 +33,14 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
+if not DEBUG:
+    if SECRET_KEY == "dev-only-insecure-key-change-me":
+        raise RuntimeError("DJANGO_SECRET_KEY must be set when DJANGO_DEBUG=False")
+    if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
+        raise RuntimeError(
+            "DJANGO_ALLOWED_HOSTS must contain explicit hosts when DJANGO_DEBUG=False"
+        )
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -100,6 +108,9 @@ else:
         }
     }
 
+if not DEBUG and not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL must be set when DJANGO_DEBUG=False")
+
 # ---------------------------------------------------------------------------
 # Passwords / auth
 # ---------------------------------------------------------------------------
@@ -137,6 +148,21 @@ CORS_ALLOWED_ORIGINS = [
     for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
     if o.strip()
 ]
+CSRF_TRUSTED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
+    if o.strip()
+]
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "False") == "True"
+SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "0"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
+SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
 
 # ---------------------------------------------------------------------------
 # Django REST Framework
@@ -172,6 +198,8 @@ if DEBUG:
 # Fernet key for encrypting Cluster.token at rest. MUST be set in real
 # environments via secret/env var - never commit a real key.
 FIELD_ENCRYPTION_KEY = os.environ.get("FIELD_ENCRYPTION_KEY", "")
+if not DEBUG and not FIELD_ENCRYPTION_KEY:
+    raise RuntimeError("FIELD_ENCRYPTION_KEY must be set when DJANGO_DEBUG=False")
 
 # Kubernetes client behaviour
 K8S_VERIFY_SSL = os.environ.get("K8S_VERIFY_SSL", "False") == "True"
