@@ -1,0 +1,723 @@
+import { useEffect, useState } from "react";
+import {
+  Activity,
+  Box,
+  Check,
+  ChevronRight,
+  CircleAlert,
+  Cloud,
+  Database,
+  LoaderCircle,
+  Plus,
+  RefreshCw,
+  Server,
+  Settings2,
+  Trash2,
+  X,
+} from "lucide-react";
+import "./App.css";
+
+const api = async (path, options = {}) => {
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json", ...options.headers },
+    ...options,
+  });
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!response.ok) {
+    const message =
+      data !== null && typeof data === "object"
+        ? Object.values(data).flat().join(" ")
+        : data;
+    throw new Error(message || response.statusText);
+  }
+  return data;
+};
+
+const listData = (data) => data?.results || data || [];
+const statusTone = (status) => {
+  const value = String(status || "").toLowerCase();
+  if (["active", "running", "ready"].some((item) => value.includes(item)))
+    return "success";
+  if (["creating", "updating", "pending"].some((item) => value.includes(item)))
+    return "warning";
+  if (["failed", "error", "deleting"].some((item) => value.includes(item)))
+    return "danger";
+  return "neutral";
+};
+
+function StatusBadge({ status = "Unknown" }) {
+  return (
+    <span className={`status-badge ${statusTone(status)}`}>
+      <span />
+      {status.replaceAll("_", " ")}
+    </span>
+  );
+}
+
+function Metric({ label, value, icon: Icon }) {
+  return (
+    <div className="metric">
+      <Icon size={15} />
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function FormField({
+  label,
+  name,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  required = true,
+  min,
+}) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input
+        name={name}
+        defaultValue={value}
+        onChange={onChange}
+        type={type}
+        placeholder={placeholder}
+        required={required}
+        min={min}
+      />
+    </label>
+  );
+}
+
+function App() {
+  const [clusters, setClusters] = useState([]);
+  const [namespaces, setNamespaces] = useState([]);
+  const [apps, setApps] = useState([]);
+  const [selectedCluster, setSelectedCluster] = useState(null);
+  const [selectedNamespace, setSelectedNamespace] = useState(null);
+  const [selectedApp, setSelectedApp] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [modal, setModal] = useState(null);
+
+  const loadClusters = async () => {
+    const data = listData(await api("/api/clusters/"));
+    setClusters(data);
+    setSelectedCluster(
+      (current) =>
+        data.find((item) => item.id === current?.id) || data[0] || null,
+    );
+    return data;
+  };
+  const loadNamespaces = async (clusterId) => {
+    if (!clusterId) {
+      setNamespaces([]);
+      setSelectedNamespace(null);
+      return [];
+    }
+    const data = listData(
+      await api(`/api/namespaces/?cluster_id=${clusterId}`),
+    );
+    setNamespaces(data);
+    setSelectedNamespace(
+      (current) =>
+        data.find((item) => item.id === current?.id) || data[0] || null,
+    );
+    return data;
+  };
+  const loadApps = async (namespaceId) => {
+    if (!namespaceId) {
+      setApps([]);
+      setSelectedApp(null);
+      return [];
+    }
+    const data = listData(await api(`/api/apps/?namespace_id=${namespaceId}`));
+    setApps(data);
+    setSelectedApp(
+      (current) => data.find((item) => item.id === current?.id) || null,
+    );
+    return data;
+  };
+  const refresh = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await loadClusters();
+      const cluster =
+        data.find((item) => item.id === selectedCluster?.id) || data[0];
+      const namespaceData = await loadNamespaces(cluster?.id);
+      const namespace =
+        namespaceData.find((item) => item.id === selectedNamespace?.id) ||
+        namespaceData[0];
+      await loadApps(namespace?.id);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    refresh();
+  }, []);
+  useEffect(() => {
+    if (selectedCluster)
+      loadNamespaces(selectedCluster.id).catch((e) => setError(e.message));
+  }, [selectedCluster?.id]);
+  useEffect(() => {
+    if (selectedNamespace)
+      loadApps(selectedNamespace.id).catch((e) => setError(e.message));
+  }, [selectedNamespace?.id]);
+  const submit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    const form = Object.fromEntries(new FormData(event.currentTarget));
+    try {
+      if (modal === "cluster")
+        await api("/api/clusters/", {
+          method: "POST",
+          body: JSON.stringify(form),
+        });
+      if (modal === "namespace")
+        await api("/api/namespaces/", {
+          method: "POST",
+          body: JSON.stringify({
+            ...form,
+            cluster_id: Number(selectedCluster.id),
+          }),
+        });
+      if (modal === "app")
+        await api("/api/apps/", {
+          method: "POST",
+          body: JSON.stringify({
+            ...form,
+            namespace_id: Number(selectedNamespace.id),
+            replicas: Number(form.replicas),
+          }),
+        });
+      if (modal === "edit") {
+        const { name: _name, ...changes } = form;
+        await api(`/api/apps/${selectedApp.id}/`, {
+          method: "PATCH",
+          body: JSON.stringify({ ...changes, replicas: Number(form.replicas) }),
+        });
+      }
+      setModal(null);
+      setNotice("Changes saved");
+      await refresh();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const remove = async (kind, item) => {
+    if (!window.confirm(`Delete ${item.name}? This cannot be undone.`)) return;
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/api/${kind}/${item.id}/`, { method: "DELETE" });
+      setSelectedApp(null);
+      setNotice(`${kind === "apps" ? "App" : "Namespace"} deleted`);
+      await refresh();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const livePods = selectedApp?.live?.pods || [];
+  const initial = (value) => value || "";
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark">
+            <Cloud size={19} />
+          </div>
+          <div>
+            <strong>Control plane</strong>
+            <span>Infrastructure workspace</span>
+          </div>
+        </div>
+        <div className="topbar-actions">
+          <span className="connection">
+            <span /> API connected
+          </span>
+          <button
+            className="icon-button"
+            title="Refresh data"
+            onClick={refresh}
+          >
+            <RefreshCw size={17} />
+          </button>
+          <button className="primary" onClick={() => setModal("cluster")}>
+            <Plus size={16} /> Register cluster
+          </button>
+        </div>
+      </header>
+      {notice && (
+        <div className="toast" onClick={() => setNotice("")}>
+          <Check size={16} />
+          {notice}
+          <X size={14} />
+        </div>
+      )}
+      <main className="workspace">
+        <aside className="sidebar">
+          <div className="eyebrow">Your infrastructure</div>
+          <div className="side-title">
+            <h1>Clusters</h1>
+            <span>{clusters.length}</span>
+          </div>
+          <div className="cluster-list">
+            {loading && !clusters.length ? (
+              <div className="loading-line">
+                <LoaderCircle className="spin" size={16} /> Loading clusters
+              </div>
+            ) : clusters.length ? (
+              clusters.map((cluster) => (
+                <button
+                  className={`cluster-item ${selectedCluster?.id === cluster.id ? "active" : ""}`}
+                  key={cluster.id}
+                  onClick={() => {
+                    setSelectedCluster(cluster);
+                    setSelectedNamespace(null);
+                    setSelectedApp(null);
+                  }}
+                >
+                  <span className="cluster-icon">
+                    <Server size={17} />
+                  </span>
+                  <span className="cluster-copy">
+                    <strong>{cluster.name}</strong>
+                    <small>{cluster.address}</small>
+                  </span>
+                  <ChevronRight size={15} />
+                </button>
+              ))
+            ) : (
+              <div className="empty-side">
+                <Server size={20} />
+                <p>No clusters registered</p>
+                <button onClick={() => setModal("cluster")}>
+                  Register one
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="sidebar-foot">
+            <Activity size={15} />
+            <span>Live operations</span>
+            <span className="pulse" />
+          </div>
+        </aside>
+        <section className="content">
+          <div className="page-heading">
+            <div>
+              <div className="breadcrumb">
+                <span>Clusters</span>
+                <ChevronRight size={13} />
+                <strong>{selectedCluster?.name || "Select a cluster"}</strong>
+              </div>
+              <h2>
+                {selectedCluster
+                  ? selectedCluster.name
+                  : "Welcome to your control plane"}
+              </h2>
+              <p>
+                {selectedCluster
+                  ? selectedCluster.address
+                  : "Register a cluster to begin managing namespaces and applications."}
+              </p>
+            </div>
+            {selectedCluster && (
+              <button
+                className="secondary"
+                onClick={() => setModal("namespace")}
+              >
+                <Plus size={16} /> New namespace
+              </button>
+            )}
+          </div>
+          {error && (
+            <div className="error-banner">
+              <CircleAlert size={18} />
+              <span>{error}</span>
+              <button onClick={() => setError("")}>
+                <X size={15} />
+              </button>
+            </div>
+          )}
+          {selectedCluster && (
+            <>
+              <div className="section-label">
+                Namespaces <span>{namespaces.length}</span>
+              </div>
+              <div className="namespace-strip">
+                {namespaces.length ? (
+                  namespaces.map((namespace) => (
+                    <button
+                      key={namespace.id}
+                      className={`namespace-card ${selectedNamespace?.id === namespace.id ? "selected" : ""}`}
+                      onClick={() => {
+                        setSelectedNamespace(namespace);
+                        setSelectedApp(null);
+                      }}
+                    >
+                      <div className="namespace-top">
+                        <Box size={16} />
+                        <StatusBadge status={namespace.status} />
+                      </div>
+                      <strong>{namespace.name}</strong>
+                      <small>
+                        Namespace <ChevronRight size={12} />
+                      </small>
+                    </button>
+                  ))
+                ) : (
+                  <div className="empty-panel">
+                    <Database size={22} />
+                    <div>
+                      <strong>No namespaces yet</strong>
+                      <p>
+                        Create a namespace in this cluster to deploy an app.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+          <div className="section-label app-label">
+            Applications {selectedNamespace && <span>{apps.length}</span>}
+            {selectedNamespace && (
+              <button className="text-button" onClick={() => setModal("app")}>
+                <Plus size={15} /> Create app
+              </button>
+            )}
+          </div>
+          <div className="table-wrap">
+            {!selectedNamespace ? (
+              <div className="empty-state">
+                <Box size={32} />
+                <strong>Select a namespace</strong>
+                <p>Choose a namespace above to view its applications.</p>
+              </div>
+            ) : apps.length ? (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Application</th>
+                    <th>State</th>
+                    <th>Image</th>
+                    <th>Replicas</th>
+                    <th>Resources</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {apps.map((app) => (
+                    <tr
+                      key={app.id}
+                      className={
+                        selectedApp?.id === app.id ? "row-selected" : ""
+                      }
+                      onClick={() => setSelectedApp(app)}
+                    >
+                      <td>
+                        <div className="app-name">
+                          <span className="app-avatar">
+                            <Box size={15} />
+                          </span>
+                          <strong>{app.name}</strong>
+                        </div>
+                      </td>
+                      <td>
+                        <StatusBadge status={app.status} />
+                      </td>
+                      <td>
+                        <code>{app.image}</code>
+                      </td>
+                      <td>
+                        <strong>
+                          {app.live?.ready_replicas ?? app.replicas}
+                        </strong>
+                        <span className="muted"> / {app.replicas}</span>
+                      </td>
+                      <td>
+                        <span className="resource-copy">
+                          {app.cpu_request || "—"} CPU
+                          <br />
+                          {app.memory_request || "—"} RAM
+                        </span>
+                      </td>
+                      <td>
+                        <ChevronRight size={16} className="row-arrow" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="empty-state">
+                <Box size={32} />
+                <strong>No applications in {selectedNamespace.name}</strong>
+                <p>Deploy your first application to this namespace.</p>
+                <button className="primary" onClick={() => setModal("app")}>
+                  <Plus size={15} /> Create application
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+        {selectedApp && (
+          <aside className="detail-panel">
+            <div className="detail-head">
+              <div>
+                <div className="eyebrow">Application detail</div>
+                <h3>{selectedApp.name}</h3>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => setSelectedApp(null)}
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <div className="detail-status">
+              <StatusBadge status={selectedApp.status} />
+              <span>
+                {selectedApp.updated_at
+                  ? `Updated ${new Date(selectedApp.updated_at).toLocaleDateString()}`
+                  : "Live status"}
+              </span>
+            </div>
+            <div className="detail-block">
+              <span className="detail-label">Deployment</span>
+              <div className="detail-line">
+                <span>Image</span>
+                <code>{selectedApp.image}</code>
+              </div>
+              <div className="detail-line">
+                <span>Namespace</span>
+                <strong>{selectedNamespace?.name}</strong>
+              </div>
+              <div className="detail-line">
+                <span>Replicas</span>
+                <strong>{selectedApp.replicas}</strong>
+              </div>
+            </div>
+            <div className="detail-block">
+              <span className="detail-label">Live pods</span>
+              {livePods.length ? (
+                livePods.map((pod) => (
+                  <div className="pod-row" key={pod.name || pod.id}>
+                    <span className="pod-dot" />
+                    <span>{pod.name || "Pod"}</span>
+                    <StatusBadge status={pod.status || "Ready"} />
+                  </div>
+                ))
+              ) : (
+                <div className="live-empty">
+                  {selectedApp.live?.error || "No live pod data available"}
+                </div>
+              )}
+            </div>
+            <div className="detail-block">
+              <span className="detail-label">Resources</span>
+              <Metric
+                label="CPU request"
+                value={selectedApp.cpu_request || "—"}
+                icon={Activity}
+              />
+              <Metric
+                label="CPU limit"
+                value={selectedApp.cpu_limit || "—"}
+                icon={Activity}
+              />
+              <Metric
+                label="Memory request"
+                value={selectedApp.memory_request || "—"}
+                icon={Database}
+              />
+              <Metric
+                label="Memory limit"
+                value={selectedApp.memory_limit || "—"}
+                icon={Database}
+              />
+            </div>
+            <div className="detail-actions">
+              <button className="secondary" onClick={() => setModal("edit")}>
+                <Settings2 size={15} /> Edit app
+              </button>
+              <button
+                className="danger-button"
+                onClick={() => remove("apps", selectedApp)}
+              >
+                <Trash2 size={15} /> Delete
+              </button>
+            </div>
+          </aside>
+        )}
+      </main>
+      {selectedNamespace && (
+        <button
+          className="floating-delete"
+          title="Delete namespace"
+          onClick={() => remove("namespaces", selectedNamespace)}
+        >
+          <Trash2 size={15} /> Delete namespace
+        </button>
+      )}
+      {modal && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) =>
+            event.target === event.currentTarget && setModal(null)
+          }
+        >
+          <div className="modal">
+            <div className="modal-head">
+              <div>
+                <div className="eyebrow">Configuration</div>
+                <h3>
+                  {modal === "cluster"
+                    ? "Register cluster"
+                    : modal === "namespace"
+                      ? "Create namespace"
+                      : modal === "edit"
+                        ? `Edit ${selectedApp.name}`
+                        : "Create application"}
+                </h3>
+              </div>
+              <button className="icon-button" onClick={() => setModal(null)}>
+                <X size={17} />
+              </button>
+            </div>
+            <form onSubmit={submit}>
+              {modal === "cluster" && (
+                <>
+                  <FormField
+                    label="Cluster name"
+                    name="name"
+                    placeholder="production"
+                  />
+                  <FormField
+                    label="API address"
+                    name="address"
+                    placeholder="https://api.example.com:6443"
+                  />
+                  <label className="field">
+                    <span>Bearer token</span>
+                    <textarea
+                      name="token"
+                      rows="3"
+                      required
+                      placeholder="Paste the cluster token"
+                    />
+                  </label>
+                </>
+              )}
+              {modal === "namespace" && (
+                <FormField
+                  label="Namespace name"
+                  name="name"
+                  placeholder="staging"
+                />
+              )}
+              {(modal === "app" || modal === "edit") && (
+                <>
+                  <div className="form-grid">
+                    <FormField
+                      label="App name"
+                      name="name"
+                      value={initial(selectedApp?.name)}
+                      onChange={() => {}}
+                      placeholder="web"
+                      required={modal === "app"}
+                    />
+                    <FormField
+                      label="Container image"
+                      name="image"
+                      value={initial(selectedApp?.image)}
+                      onChange={() => {}}
+                      placeholder="nginx:1.27"
+                    />
+                  </div>
+                  <div className="form-grid">
+                    <FormField
+                      label="Replicas"
+                      name="replicas"
+                      type="number"
+                      min="0"
+                      value={initial(selectedApp?.replicas || 1)}
+                      onChange={() => {}}
+                    />
+                    <FormField
+                      label="CPU request"
+                      name="cpu_request"
+                      value={initial(selectedApp?.cpu_request)}
+                      onChange={() => {}}
+                      placeholder="100m"
+                    />
+                  </div>
+                  <div className="form-grid">
+                    <FormField
+                      label="CPU limit"
+                      name="cpu_limit"
+                      value={initial(selectedApp?.cpu_limit)}
+                      onChange={() => {}}
+                      placeholder="500m"
+                    />
+                    <FormField
+                      label="Memory request"
+                      name="memory_request"
+                      value={initial(selectedApp?.memory_request)}
+                      onChange={() => {}}
+                      placeholder="128Mi"
+                    />
+                  </div>
+                  <FormField
+                    label="Memory limit"
+                    name="memory_limit"
+                    value={initial(selectedApp?.memory_limit)}
+                    onChange={() => {}}
+                    placeholder="512Mi"
+                  />
+                </>
+              )}
+              {
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setModal(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button className="primary" disabled={saving}>
+                    {saving && <LoaderCircle className="spin" size={15} />}
+                    {modal === "edit" ? "Save changes" : "Create"}
+                  </button>
+                </div>
+              }
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
